@@ -1,0 +1,147 @@
+File already exists: /Users/rohandendrinos/engn4300-agripower-model/data/2025/solar_hourly_generation_2025.csv
+grid import limit: 200 kW (from config)
+blackouts: 6 hours without grid
+prices: Step Change 2036 forecast (central_gradual)
+                                                     0         1         2  \
+cost over modelled period                      86322.4   75123.7   70439.5   
+emissions over modelled period                   220.7    9652.5   19084.2   
+Operating cost over period                      2092.0    3196.3    4536.6   
+Export revenue over period                      9133.3    8330.8    7507.8   
+Equipment cost for period                      93363.6   80258.2   73410.7   
+Operating emissions over period (kgCO2e)      -43707.6  -27442.9  -14488.0   
+asset emissions over period (kgCO2e)           43928.2   37095.4   33572.2   
+Upfront capital cost of whole system          872070.4  745271.0  679624.2   
+Upfront embodied emissions, one-off (kgCO2e)  977571.0  815270.6  733254.1   
+battery capacity (kWh)                          1037.4     964.1     912.0   
+battery inverter (kW)                            100.0     100.0     100.0   
+pv capacity                                      585.0     475.2     421.6   
+generator size (kW)                                0.0       0.0       0.0   
+panels_North                                     200.0     200.0     200.0   
+panels_South                                     200.0       0.0       0.0   
+panels_East                                      200.0     200.0     200.0   
+panels_West                                      200.0     156.0      37.0   
+panels_Ground                                    500.0     500.0     500.0   
+Grid import (kWh)                              12461.6   20711.3   29041.1   
+Grid export (kWh)                             138521.7  116321.2  102107.6   
+PV used (kWh)                                 641490.0  610355.7  587249.2   
+Battery charged (kWh)                         298273.8  284589.9  273329.5   
+Battery discharged (kWh)                      283360.1  270360.4  259663.0   
+Generator output (kWh)                             0.0       0.0       0.0   
+Peak grid import (kW)                            192.2     192.2     192.2   
+Peak generator output (kW)                         0.0       0.0       0.0   
+Minimum battery SOC (kWh)                        103.7      96.4      91.2   
+Maximum battery SOC (kWh)                       1037.4     964.1     912.0   
+Load (kWh)                                    500516.3  500516.3  500516.3   
+PV curtailed (kWh)                            284895.9  179602.9  130918.1   
+Generator run hours                                0.0       0.0       0.0   
+Farm bill with no assets (grid only)          100173.2  100173.2  100173.2   
+Farm bill over period                          86322.4   75123.7   70439.5   
+Farm saving vs grid only                       13850.8   25049.5   29733.8   
+
+                                                     3         4         5  \
+cost over modelled period                      68133.2   65689.8   64403.3   
+emissions over modelled period                 28516.0   37947.8   47379.5   
+Operating cost over period                      5775.3    7552.7    9234.1   
+Export revenue over period                      7341.6    6623.8    6375.0   
+Equipment cost for period                      69699.5   64760.9   61544.2   
+Operating emissions over period (kgCO2e)       -3298.8    8735.8   19795.5   
+asset emissions over period (kgCO2e)           31814.8   29212.0   27584.0   
+Upfront capital cost of whole system          646006.5  597863.3  567374.7   
+Upfront embodied emissions, one-off (kgCO2e)  697823.7  635005.4  598085.4   
+battery capacity (kWh)                           838.8     819.5     787.0   
+battery inverter (kW)                            100.0     100.0     100.0   
+pv capacity                                      405.0     361.4     338.4   
+generator size (kW)                                0.0       0.0       0.0   
+panels_North                                     200.0     200.0     200.0   
+panels_South                                       0.0       0.0       0.0   
+panels_East                                      200.0     103.0      52.0   
+panels_West                                        0.0       0.0       0.0   
+panels_Ground                                    500.0     500.0     500.0   
+Grid import (kWh)                              36801.6   47650.3   57940.7   
+Grid export (kWh)                              93183.3   84024.1   76802.0   
+PV used (kWh)                                 569948.5  549631.6  531809.7   
+Battery charged (kWh)                         261011.4  254830.0  248643.8   
+Battery discharged (kWh)                      247960.8  242088.5  236211.6   
+Generator output (kWh)                             0.0       0.0       0.0   
+Peak grid import (kW)                            197.6     197.6     197.6   
+Peak generator output (kW)                         0.0       0.0       0.0   
+Minimum battery SOC (kWh)                         83.9      81.9      78.7   
+Maximum battery SOC (kWh)                        838.8     819.5     787.0   
+Load (kWh)                                    500516.3  500516.3  500516.3   
+PV curtailed (kWh)                            125897.1   76819.2   58155.2   
+Generator run hours                                0.0       0.0       0.0   
+Farm bill with no assets (grid only)          100173.2  100173.2  100173.2   
+Farm bill over period                          68133.2   65689.8   64403.3   
+Farm saving vs grid only                       32040.0   34483.4   35769.9   
+
+                                                     6         7         8  \
+cost over modelled period                      63553.0   63258.5   63399.8   
+emissions over modelled period                 56811.3   65965.4   67783.3   
+Operating cost over period                     10931.6   12047.6   12437.9   
+Export revenue over period                      6169.8    6374.0    6415.4   
+Equipment cost for period                      58791.2   57584.9   57377.3   
+Operating emissions over period (kgCO2e)       30611.5   40325.6   42230.4   
+asset emissions over period (kgCO2e)           26199.8   25639.8   25552.9   
+Upfront capital cost of whole system          541398.3  530615.9  528882.6   
+Upfront embodied emissions, one-off (kgCO2e)  567028.0  556176.6  554873.3   
+battery capacity (kWh)                           756.5     729.4     721.9   
+battery inverter (kW)                            100.0     100.0     100.0   
+pv capacity                                      319.5     315.0     315.0   
+generator size (kW)                                0.0       0.0       0.0   
+panels_North                                     200.0     200.0     200.0   
+panels_South                                       0.0       0.0       0.0   
+panels_East                                       10.0       0.0       0.0   
+panels_West                                        0.0       0.0       0.0   
+panels_Ground                                    500.0     500.0     500.0   
+Grid import (kWh)                              68776.9   75919.0   78003.8   
+Grid export (kWh)                              70479.2   59670.4   59010.6   
+PV used (kWh)                                 514368.1  496216.5  493416.6   
+Battery charged (kWh)                         242989.1  238975.5  237870.6   
+Battery discharged (kWh)                      230839.7  227026.8  225977.1   
+Generator output (kWh)                             0.0       0.0       0.0   
+Peak grid import (kW)                            197.6     197.7     197.7   
+Peak generator output (kW)                         0.0       0.0       0.0   
+Minimum battery SOC (kWh)                         75.6      72.9      72.2   
+Maximum battery SOC (kWh)                        756.5     729.4     721.9   
+Load (kWh)                                    500516.3  500516.3  500516.3   
+PV curtailed (kWh)                             45549.6   56547.1   59347.0   
+Generator run hours                                0.0       0.0       0.0   
+Farm bill with no assets (grid only)          100173.2  100173.2  100173.2   
+Farm bill over period                          63553.0   63258.5   63399.8   
+Farm saving vs grid only                       36620.3   36914.7   36773.5   
+
+                                                     9  
+cost over modelled period                      62738.4  
+emissions over modelled period                 85082.1  
+Operating cost over period                     16213.7  
+Export revenue over period                      5638.0  
+Equipment cost for period                      52162.7  
+Operating emissions over period (kgCO2e)       62136.2  
+asset emissions over period (kgCO2e)           22946.0  
+Upfront capital cost of whole system          479434.0  
+Upfront embodied emissions, one-off (kgCO2e)  495424.5  
+battery capacity (kWh)                           672.7  
+battery inverter (kW)                             98.5  
+pv capacity                                      277.7  
+generator size (kW)                                0.0  
+panels_North                                     117.0  
+panels_South                                       0.0  
+panels_East                                        0.0  
+panels_West                                        0.0  
+panels_Ground                                    500.0  
+Grid import (kWh)                             100338.2  
+Grid export (kWh)                              49582.1  
+PV used (kWh)                                 461110.1  
+Battery charged (kWh)                         226997.8  
+Battery discharged (kWh)                      215648.0  
+Generator output (kWh)                             0.0  
+Peak grid import (kW)                            196.2  
+Peak generator output (kW)                         0.0  
+Minimum battery SOC (kWh)                         67.3  
+Maximum battery SOC (kWh)                        672.7  
+Load (kWh)                                    500516.3  
+PV curtailed (kWh)                             30003.7  
+Generator run hours                                0.0  
+Farm bill with no assets (grid only)          100173.2  
+Farm bill over period                          62738.4  
+Farm saving vs grid only                       37434.8  
