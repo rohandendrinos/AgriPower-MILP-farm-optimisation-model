@@ -1,0 +1,745 @@
+"""
+this is all of the modules combined into a single file, it is not updated along
+with the rest of the code and so is just here for reference.
+
+"""
+import pvlib
+from pvlib.modelchain import ModelChain
+from pvlib.location import Location
+from pvlib.pvsystem import PVSystem
+from pvlib.temperature import TEMPERATURE_MODEL_PARAMETERS
+import pandas as pd
+import matplotlib.pyplot as plt
+import math 
+import numpy as np
+import pulp 
+from pathlib import Path
+from pvlib import pvsystem
+from pathlib import Path
+
+
+
+##########################
+######## input data ######
+##########################
+
+# keeps paths to the data folder independent of where python was launched from.
+REPO_ROOT = Path(__file__).resolve().parents[1]
+
+# simulation settings
+timestep = 1.0 # hourly timesteps
+horizon = 24
+model_year = 2025
+
+# epsilon constraints
+n_epsilon_steps = 10 # number of points on the Pareto front
+
+# location
+lat = -34.28
+lon = 146.04
+timezone = 'Etc/GMT-10' # UTC+10
+location_name = 'Commercial_Farm_Site'
+altitude = 130
+roof_tilt = 20    
+ground_tilt = 30  
+
+# battery
+battery_efficiency = 0.95 
+battery_efficiency_charge = math.sqrt(battery_efficiency)
+battery_efficiency_discharge = math.sqrt(battery_efficiency)
+SOC_min = 0.1 # min state of charge = 10% of capacity
+SOC_initial = 0.5 # battery starts of at 50%
+charge_rate = 0.5 # charge/discharge rate normalised by capacity
+
+# solar parameters
+panel_area = 2.0  # area in m^2 per panel
+panel_capacity = 0.45  # pannel capacity in kW per panel
+roof_usable = 0.8  # percentage of usable roof space
+
+# grid, inverter and generator limits
+grid_import_lim = 30 # kw
+grid_export_lim = 30 # kw
+inv_max_capacity = 50 # kW
+gen_min_output = 5 # kw
+gen_max_output = 30 # kw
+gen_cost = 0.55   # $/kWh diesel
+
+# costing
+discount_rate = 0.07 # i in the crf
+lifetime = {"battery": 15, "inv": 15, "pv": 25} # years
+capex = {"battery": 400.0, "inv": 300.0, "pv": 1200.0} # $/kWh, $/kW, $/kW
+maintinence = {"battery": 0.01, "inv": 0.01, "pv": 0.015} # fraction of CAPEX per year
+
+# emissions
+# NREL emissions in gCO2e/kWh for each installed unit
+LCA = {
+    "pv":        {"upstream": 28, "ongoing": 10, "downstream": 5},
+    "battery":   {"upstream": 32, "ongoing": 0,  "downstream": 3.4}, 
+    "generator": {"total": 840},
+}
+GHG_inv_inst = 0
+battery_cycles_per_year = 365  # 1 cycle per day
+
+
+# roof space in each direction
+roof_area = {
+    "North": 200, "South": 150, "East": 100, "West": 100, "Ground": 300,
+}
+
+# weather and solar settings
+start_year = model_year
+end_year = model_year
+orientations = ["North", "South", "East", "West", "Ground"]
+
+
+# output directory structure
+base_dir = REPO_ROOT  
+data_dir = base_dir / 'data'
+data_dir.mkdir(exist_ok=True)
+
+# Create year-specific folder
+if start_year == end_year:
+    year_dir = data_dir / str(start_year)
+else:
+    year_dir = data_dir / f"{start_year}_{end_year}"
+year_dir.mkdir(exist_ok=True)
+
+
+def file_exists(filepath):
+    """Check if file exists and return boolean."""
+    exists = Path(filepath).exists()
+    if exists:
+        print(f"File already exists: {filepath}")
+    return exists
+
+
+def get_weather_data(lat, lon, year, start_year=2005, end_year=2023):
+    """Fetch TMY weather data from PVGIS."""
+    all_data = pvlib.iotools.get_pvgis_tmy(
+        float(lat), float(lon),
+        startyear=start_year, endyear=end_year,
+        outputformat='json', map_variables=True
+    )
+
+    data = all_data[0].reset_index()
+    data['time(UTC)'] = pd.to_datetime(data['time(UTC)'])
+    data['time(UTC)'] = data['time(UTC)'].apply(lambda x: x.replace(year=year))
+    data = data.set_index('time(UTC)')
+    return data
+
+
+def calculate_pv_profile(weather_data, latitude, longitude, surface_azimuth,
+                        surface_tilt, type_pv='roof_flush'):
+    """Calculate PV generation profile (kW per kW installed)."""
+    temperature = weather_data['temp_air'].astype(float)
+    windspeed = weather_data['wind_speed'].astype(float)
+    ghi = weather_data['ghi']
+    dni = weather_data['dni']
+    dhi = weather_data['dhi']
+    pressure = weather_data['pressure'].astype(float)
+
+    sp = pvlib.solarposition.get_solarposition(
+        weather_data.index, float(latitude), float(longitude), pressure=pressure
+    )
+
+    irradiance = pvlib.irradiance.get_total_irradiance(
+        surface_tilt, surface_azimuth, sp.apparent_zenith, sp.azimuth,
+        dni, ghi, dhi
+    )
+
+    modules = pvsystem.retrieve_sam('SandiaMod').T
+    modules_multi_si = modules[modules['Material'] == 'mc-Si']
+    multi_si = modules_multi_si[
+        modules_multi_si.index.str.contains('Sharp_NDQ235F4__2013_')
+    ].T.iloc[:, 0]
+
+    if type_pv == 'roof_flush':
+        temp_model_params = pvlib.temperature.TEMPERATURE_MODEL_PARAMETERS['sapm']['close_mount_glass_glass']
+    elif type_pv == 'roof_tilt':
+        temp_model_params = pvlib.temperature.TEMPERATURE_MODEL_PARAMETERS['sapm']['open_rack_glass_polymer']
+    else:
+        raise ValueError('Invalid type of PV panel installation')
+
+    celltemp = pvlib.temperature.sapm_cell(
+        irradiance.poa_global, temperature, windspeed, **temp_model_params
+    )
+
+    airmass = pvlib.atmosphere.get_relative_airmass(sp.apparent_zenith)
+    airmass_absolute = pvlib.atmosphere.get_absolute_airmass(airmass, pressure=pressure)
+    aoi = pvlib.irradiance.aoi(surface_tilt, surface_azimuth, sp.zenith, sp.azimuth)
+
+    effective_irradiance = pvlib.pvsystem.sapm_effective_irradiance(
+        irradiance.poa_direct, irradiance.poa_diffuse,
+        airmass_absolute, aoi, multi_si
+    )
+
+    dc = pvlib.pvsystem.sapm(effective_irradiance, celltemp, multi_si)
+    kWp = (multi_si.Impo * multi_si.Vmpo) / 1000
+
+    sapm_inverters = pvlib.pvsystem.retrieve_sam('cecinverter')
+    inverter = sapm_inverters['ABB__MICRO_0_25_I_OUTD_US_208__208V_']
+    ac = pvlib.inverter.sandia(dc['v_mp'], dc['p_mp'], inverter)
+
+    ac_mod = ac.fillna(0) / 1000
+    ac_mod[ac_mod < 0] = 0
+    profile = (1/kWp) * ac_mod
+
+    return profile
+
+
+def generate_directional_solar_profiles(lat, lon, start_year, end_year, type_pv='roof_flush'):
+    """Generate solar profiles for all four cardinal directions, plus a ground mount."""
+    if start_year == end_year:
+        filename = year_dir / f"solar_hourly_generation_{start_year}.csv"
+    else:
+        filename = year_dir / f"solar_hourly_generation_{start_year}_{end_year}.csv"
+
+    if file_exists(filename):
+        return pd.read_csv(filename)
+
+    directions = {'north': 0, 'east': 90, 'south': 180, 'west': 270}
+    tilt = roof_tilt # changable input
+
+    all_data = []
+    for year in range(start_year - 1, end_year + 1):
+        year_weather_data = get_weather_data(lat, lon, year)
+
+        year_profiles = {}
+        for direction, azimuth in directions.items():
+            year_profiles[direction] = calculate_pv_profile(
+                year_weather_data, lat, lon, azimuth, tilt, type_pv
+            )
+
+        # ground mount, north-facing, open-rack temperature model
+        year_profiles['ground'] = calculate_pv_profile(
+            year_weather_data, lat, lon, 0, ground_tilt, 'roof_tilt'
+        )
+
+        year_df = pd.DataFrame({
+            'timestamp': year_weather_data.index,
+            'north_solar_capacity_kw_per_kw': year_profiles['north'].values,
+            'east_solar_capacity_kw_per_kw': year_profiles['east'].values,
+            'south_solar_capacity_kw_per_kw': year_profiles['south'].values,
+            'west_solar_capacity_kw_per_kw': year_profiles['west'].values,
+            'ground_solar_capacity_kw_per_kw': year_profiles['ground'].values
+        })
+        all_data.append(year_df)
+
+    results_df = pd.concat(all_data, ignore_index=True)
+    results_df.to_csv(filename, index=False)
+    print(f"Created: {filename}")
+    return results_df
+
+
+
+
+def get_pv_profiles():
+    """ Hourly AC output in kW per kW of panels installed, for each orientation. Because each
+    step is one hour, this also equals kWh per kW. timestamps in local time, 
+    from midnight on 1 January to
+    the end of the horizon"""
+    solar = generate_directional_solar_profiles(lat, lon, start_year, end_year)
+
+    # convert solar profiles from UTC to the local timezone
+    solar['timestamp'] = pd.to_datetime(solar['timestamp'], utc=True).dt.tz_convert(timezone)
+    solar = solar.sort_values('timestamp').reset_index(drop=True)
+
+    # Start at midnight on 1st of January (local time)
+    local_start = pd.Timestamp(f"{start_year}-01-01", tz=timezone)
+    solar = solar[solar['timestamp'] >= local_start]
+
+    # map column names for use in milp
+    columns = {f"{d.lower()}_solar_capacity_kw_per_kw": d for d in orientations}
+    profiles = solar.set_index('timestamp').rename(columns=columns)[orientations]
+
+    annual_yield = profiles.iloc[:8760].sum().to_dict()
+
+    profiles = profiles.iloc[:horizon]
+    assert len(profiles) == horizon, f"expected {horizon} rows, got {len(profiles)}"
+
+    profiles_by_orientation = {}
+    for orientation in orientations:
+        profiles_by_orientation[orientation] = profiles[orientation].to_numpy()
+    return profiles_by_orientation, profiles.index, annual_yield
+
+######## time ######
+time_intervals = range(horizon)   # timestep index
+
+
+####### solar #######
+pv_profile, times, pv_annual_yield = get_pv_profiles() # kw per kw installed
+
+
+###### load #######
+# kWh per hour
+day_load_kwh = np.array([
+    10, 9, 9, 8, 8, 9,
+    12, 15, 18, 20, 22, 20,
+    18, 17, 16, 16, 17, 20,
+    25, 25, 22, 18, 14, 11
+])
+load_kwh = np.tile(day_load_kwh, 365)[:horizon]
+
+# extension for later
+load_critical = np.array([
+])
+
+
+
+###### blackouts #######
+# grid import, kWh per hour
+blackout = np.array([
+    1, 1, 1, 1, 1, 1,
+    1, 1, 1, 0, 0, 0,
+    1, 1, 1, 1, 1, 2,
+    1, 1, 1, 1, 1, 1
+])
+grid_blackout = np.tile(blackout, 365)[:horizon]
+grid_available = (grid_blackout > 0).astype(int) #0 = blackout
+
+
+
+###### prices, $/kWh #######
+# grid import prices
+day_grid_import_price = np.array([
+    0.20, 0.20, 0.20, 0.20, 0.20, 0.20,
+    0.25, 0.30, 0.35, 0.35, 0.35, 0.35,
+    0.30, 0.30, 0.25, 0.25, 0.30, 0.40,
+    0.45, 0.45, 0.40, 0.35, 0.30, 0.25
+])
+grid_import_price = np.tile(day_grid_import_price, 365)[:horizon]
+
+# $/kWh
+day_export_price = np.array([
+    0.04, 0.04, 0.04, 0.04, 0.04, 0.04,
+    0.06, 0.07, 0.05, 0.03, 0.02, 0.01,
+    0.01, 0.01, 0.02, 0.04, 0.07, 0.12,
+    0.15, 0.15, 0.12, 0.08, 0.06, 0.05
+])
+grid_export_price = np.tile(day_export_price, 365)[:horizon]
+
+# generator costs ($/kWh)
+generator_price = np.full(horizon, gen_cost)
+
+
+
+######## emissions ############
+# kgCO2e per kWh imported
+GHG_grid_import = 0.68 
+GHG_grid_in = np.full(horizon, GHG_grid_import)
+
+# kgCO2e per kWh exported (credited)
+GHG_grid_export = 0.2 # feed out - (LCA data pending)
+GHG_grid_out = np.full(horizon, GHG_grid_export)
+
+
+
+
+###### max solar pannels per roof orientation #######
+def max_panels(roof_area):
+    """ the maximum number of solar panels that can fit on each 
+        roof direction """
+    if panel_area is None or roof_usable is None:
+        return None
+    result = {}
+    for direction, area in roof_area.items():
+        if area is None:
+            return None
+        result[direction] = math.floor(area * roof_usable / panel_area)
+    return result
+
+max_panels_by_direction = max_panels(roof_area)
+
+
+
+
+###### annualised capital cost #######
+def crf(discount_rate, lifetime):
+    """Calculates the capital recovery factor over the asset lifetime."""
+    return (discount_rate * (1 + discount_rate) ** lifetime) / ((1 + discount_rate) ** lifetime - 1)
+# lifecycle costs
+crf_battery = crf(discount_rate, lifetime["battery"])
+crf_inv = crf(discount_rate, lifetime["inv"])
+crf_pv = crf(discount_rate, lifetime["pv"])
+# upfront costs
+capex_battery = capex["battery"]
+capex_inv = capex["inv"]
+capex_pv = capex["pv"]
+# maintenence costs
+maint_battery = maintinence["battery"]
+maint_inv = maintinence["inv"]
+maint_pv = maintinence["pv"]
+
+
+
+##### lifecycle emissions (kgCO2e/kWh) ########
+pv_lifetime_output = pv_annual_yield["North"] * lifetime["pv"] # kWh per kW
+battery_lifetime_output = battery_cycles_per_year * (1 - SOC_min) * lifetime["battery"]  # kWh per kWh capacity
+# installation emissions
+GHG_pv_inst = (LCA["pv"]["upstream"] + LCA["pv"]["downstream"]) / 1000 * pv_lifetime_output
+GHG_battery_inst  = (LCA["battery"]["upstream"] + LCA["battery"]["downstream"]) / 1000 * battery_lifetime_output
+# operation emissions
+GHG_pv = LCA["pv"]["ongoing"] / 1000
+GHG_generator  = LCA["generator"]["total"] / 1000
+
+
+
+######### checks ##########
+assert len(times) == horizon
+for direction in orientations:
+    assert len(pv_profile[direction]) == horizon
+assert len(load_kwh) == horizon
+assert len(grid_available) == horizon
+assert len(grid_import_price) == horizon
+assert len(grid_export_price) == horizon
+assert len(generator_price) == horizon
+assert len(GHG_grid_in) == horizon
+assert len(GHG_grid_out) == horizon
+
+
+
+
+###################################
+######## F2/F3 MILP model ########
+###################################
+ 
+def build_model(pv_profile, eps=None, minimise="cost"):
+ 
+    model = pulp.LpProblem("agri_power_optimisation_model", pulp.LpMinimize)
+
+ 
+    ############ decision variables ##################
+    # hourly energy flows
+    x_G_to_SN = pulp.LpVariable.dicts("grid_to_node", time_intervals, lowBound=0)
+    x_SN_to_G = pulp.LpVariable.dicts("node_to_grid", time_intervals, lowBound=0)
+    x_PV_to_SN = pulp.LpVariable.dicts("solar_to_node", time_intervals, lowBound=0)
+    x_SN_to_B = pulp.LpVariable.dicts("node_to_battery", time_intervals, lowBound=0)
+    x_B_to_SN = pulp.LpVariable.dicts("battery_to_node", time_intervals, lowBound=0)
+    x_M_to_SN = pulp.LpVariable.dicts("generator_to_node", time_intervals, lowBound=0)
+    x_SN_to_LC = pulp.LpVariable.dicts("node_to_load_crit", time_intervals, lowBound=0) 
+    x_SN_to_LNC = pulp.LpVariable.dicts("node_to_load_noncrit", time_intervals, lowBound=0)  # incorperate later
+
+    # binaries
+    a_g = pulp.LpVariable.dicts("grid_binary", time_intervals, cat="Binary")
+    a_b = pulp.LpVariable.dicts("battery_binary", time_intervals, cat="Binary")
+    a_blk = pulp.LpVariable.dicts("blackout_binary", time_intervals, cat="Binary")
+ 
+    # sizing
+    n_panels = pulp.LpVariable.dicts("number_of_pannels", orientations, lowBound=0, cat="Integer") # 1 for each mounting option
+    S_b = pulp.LpVariable("battery_size",   lowBound=0)
+    S_inv_b  = pulp.LpVariable("S_inv_b",  lowBound=0, upBound=inv_max_capacity)
+    S_m = pulp.LpVariable ("generator_size", lowBound=0)
+ 
+    # battery state of charge, kWh
+    E_b = pulp.LpVariable.dicts("battery_charge_each_hour", time_intervals, lowBound=0)
+
+
+ 
+    ########### constraints ################
+    # system node energy balance
+    for t in time_intervals:
+        model += (
+            0 == x_G_to_SN[t] + x_B_to_SN[t] + x_PV_to_SN[t] + x_M_to_SN[t]
+                 - x_SN_to_G[t] - x_SN_to_B[t] - x_SN_to_LC[t]
+        )
+ 
+    # critical load requirement
+    # energy flow to the farm load equals the load needed each hour
+    for t in time_intervals:
+        model += (x_SN_to_LC[t] == float(load_kwh[t])) 
+
+    # non critical load requirement
+    # do later
+ 
+    # grid connection
+    for t in time_intervals:
+        model += (x_G_to_SN[t] <= grid_import_lim * timestep * a_g[t] * float(grid_available[t]))
+        model += (x_SN_to_G[t] <= grid_export_lim * timestep * (1 - a_g[t]) * float(grid_available[t]))
+        model += (a_g[t] <= float(grid_available[t])) #prevent grid use in a blaackout
+
+
+    # solar constraints
+    # solar capacity is limited by the avaiilable space and by the max amount of solar energy available at each timestep
+    for i in orientations: 
+        model += (n_panels[i] <= max_panels_by_direction[i]) #max panels limited by space
+    for t in time_intervals:
+        pv_available = 0
+        for i in orientations:
+            pv_available += (panel_capacity * n_panels[i] * float(pv_profile[i][t])) # total solar energy available at each timestep
+        model += (x_PV_to_SN[t] <= pv_available)
+
+ 
+    # battery inverter
+    for t in time_intervals:
+        # inverter limit
+        model += (x_SN_to_B[t]  <= S_inv_b  * timestep)
+        model += (x_B_to_SN[t]  <= S_inv_b  * timestep)
+        # battery charge rate
+        model += (x_SN_to_B[t] <= charge_rate * S_b * timestep)
+        model += (x_B_to_SN[t] <= charge_rate * S_b * timestep)
+        # one way flow per timestep
+        model += (x_SN_to_B[t] <= inv_max_capacity * timestep * a_b[t])
+        model += (x_B_to_SN[t] <= inv_max_capacity * timestep * (1 - a_b[t]))
+
+
+    # generator output
+    for t in time_intervals:
+        model += (x_M_to_SN[t] <= gen_max_output * timestep * a_blk[t])
+        model += (x_M_to_SN[t] >= gen_min_output * timestep * a_blk[t])
+ 
+ 
+    # battery SOC range
+    for t in time_intervals:
+        model += (E_b[t] <= S_b) #battery energy must be less than its total capacity
+        model += (E_b[t] >= SOC_min * S_b)
+ 
+    # battery state of charge at first timestep
+    model += (E_b[0] == SOC_initial * S_b
+                        + x_SN_to_B[0] * battery_efficiency_charge 
+                        - x_B_to_SN[0] / battery_efficiency_discharge)
+
+    # battery state of charge for all other timesteps
+    for t in time_intervals[1:]:
+        model += (E_b[t] == E_b[t - 1]
+                            + x_SN_to_B[t] * battery_efficiency_charge
+                            - x_B_to_SN[t] / battery_efficiency_discharge)
+
+    # battery must have at least the same charge at the start of the simulation at the end
+    model += (E_b[time_intervals[-1]] >= SOC_initial * S_b)
+
+
+ 
+    ################# expressions #################
+    # sum costs and revenue over each timestep
+    grid_import_cost = 0
+    generator_cost = 0
+    export_revenue = 0
+    for t in time_intervals:
+        grid_import_cost += float(grid_import_price[t]) * x_G_to_SN[t]
+        generator_cost += float(generator_price[t]) * x_M_to_SN[t]
+        export_revenue += float(grid_export_price[t]) * x_SN_to_G[t]
+    # operation costs
+    C_op = grid_import_cost + generator_cost
+    # revenue 
+    R_op = export_revenue
+
+    # solar
+    total_panels = 0
+    for i in orientations:
+        total_panels += n_panels[i]
+    pv_capacity = panel_capacity * total_panels
+    pv_capital_cost = crf_pv * capex_pv * pv_capacity
+    pv_maintenance_cost = maint_pv * capex_pv * pv_capacity
+    # battery
+    battery_capital_cost = crf_battery * capex_battery * S_b
+    battery_maintenance_cost = maint_battery * capex_battery * S_b
+    # inverter
+    inverter_capacity = S_inv_b
+    inverter_capital_cost = crf_inv * capex_inv * inverter_capacity
+    inverter_maintenance_cost = maint_inv * capex_inv * inverter_capacity
+
+    # total installed system cost
+    C_inst = (
+        battery_capital_cost
+        + battery_maintenance_cost
+        + inverter_capital_cost
+        + inverter_maintenance_cost
+        + pv_capital_cost
+        + pv_maintenance_cost
+    )
+ 
+    # cost for modelled time horizon
+    Cost_expr = C_op - R_op + C_inst * (horizon * timestep / 8760)
+
+    # total operation emissions
+    GHG_op = 0
+    for t in time_intervals:
+        GHG_op += (
+            float(GHG_grid_in[t]) * x_G_to_SN[t]
+            + GHG_generator * x_M_to_SN[t]
+            + GHG_pv * x_PV_to_SN[t]
+            - float(GHG_grid_out[t]) * x_SN_to_G[t]
+        )
+
+    # annualised installation emissions
+    GHG_inst = (
+        GHG_battery_inst / lifetime["battery"] * S_b
+        + GHG_pv_inst / lifetime["pv"] * pv_capacity
+        + GHG_inv_inst / lifetime["inv"] * S_inv_b
+    )
+ 
+    # emissions for moddeled time horizon
+    Emis_expr = GHG_op + GHG_inst * (horizon * timestep / 8760) 
+
+
+ 
+    ################# objective ##################
+    if minimise == "cost":
+        model += Cost_expr
+    elif minimise == "emis":
+        model += Emis_expr
+    else:
+        raise ValueError("minimise must be 'cost' or 'emis'")
+
+ 
+    ############## epsilon constraint ##################
+    # eps = the emission limit
+    if eps is not None:
+        model += (Emis_expr <= eps, "eps_emissions")
+
+ 
+    ################ return model variables ##################
+    # all of the solved optimisation variables
+    variables = {
+        "x_G_to_SN": x_G_to_SN, "x_SN_to_G": x_SN_to_G, "x_PV_to_SN": x_PV_to_SN,
+        "x_SN_to_B": x_SN_to_B, "x_B_to_SN": x_B_to_SN, "x_M_to_SN": x_M_to_SN, "x_SN_to_L": x_SN_to_LC,
+        "E_B": E_b, "a_g": a_g, "a_b": a_b, "a_blk": a_blk, "n_panels": n_panels, 
+        "S_b": S_b, "S_inv_b": S_inv_b,
+        "Cost_expr": Cost_expr, "Emis_expr": Emis_expr,
+    }
+    return model, variables
+ 
+
+
+
+####### solve the model ########
+def solve_model(pv_profile, eps=None, minimise="cost"):
+    """ build the optimisation model, solve it, checks the validity
+    of the solve, and then returns the result"""
+    model, variables = build_model(pv_profile, eps=eps, minimise=minimise)
+    model.solve(pulp.PULP_CBC_CMD(msg=1, gapRel=0.01)) # solver stops at 1% accuracy
+    status = pulp.LpStatus[model.status]
+    # check if solution is optimal
+    if status != "Optimal":
+        print(f"solve returned {status} (eps={eps}, minimise={minimise})")
+        return None
+    else:
+        return {
+            "status": status,
+            "cost": pulp.value(variables["Cost_expr"]),
+            "emissions": pulp.value(variables["Emis_expr"]),
+            "vars": variables,
+    }
+
+
+######## generate pareto front via epsilon constraints ########
+def pareto_front(pv_profile, n_steps=n_epsilon_steps):
+    """ generate the perato front by repeatedly solving the model
+    with different emission limits that are fed to the model by eps.
+    eps has the same number of different values as the number of pereto points chosen"""
+    edge_case_cost = solve_model(pv_profile, minimise="cost") # minimise cost with no emissions constraint
+    edge_case_emis = solve_model(pv_profile, minimise="emis") # minimise emissions with no cost constraint
+    if edge_case_cost is None or edge_case_emis is None:
+        raise RuntimeError("edge case solves failed, the model is not fesable")
+
+    GHG_max = edge_case_cost["emissions"] #chepaest
+    GHG_min = edge_case_emis["emissions"] #most expensive
+
+    # for each run find the cheapest solution whos emissions are less than or equal to eps emissions
+    results = []
+    for eps in np.linspace(GHG_min, GHG_max, n_steps):
+        run = solve_model(pv_profile, eps=eps, minimise="cost")
+        if run is not None:
+            results.append(run)
+    return results
+
+
+###################################
+######## F5 results and outputs####
+###################################
+
+######### extract sizing decisions ########
+def get_sizing(variables):
+    # number of panels by orientation
+    panels = {}
+    for d in orientations:
+        panels[d] = variables["n_panels"][d].varValue
+    # total solar capacity
+    total_panels = 0
+    for d in orientations:
+        total_panels = total_panels + variables["n_panels"][d].varValue
+    pv_capacity = panel_capacity * total_panels
+
+    return {
+        "S_b (battery size)": variables["S_b"].varValue,
+        "S_inv_b (battery inverter size)": variables["S_inv_b"].varValue,
+        "n_panels(no. panels by direction)": panels,
+        "S_pv (total pv capacity)": pv_capacity,
+    }
+
+
+######### extract hourly energy flow and battery state #######
+def get_dispatch(variables, times):
+    flow_names = ["x_G_to_SN", "x_SN_to_G", "x_PV_to_SN", "x_SN_to_B", "x_B_to_SN", "x_M_to_SN", "E_B"]
+    # iterate through each variable
+    hourly_flows = {}
+    for i in flow_names:
+        # iterate through each time interval
+        values = []
+        for t in time_intervals:
+            values.append(variables[i][t].varValue)
+        hourly_flows[i] = values
+    return pd.DataFrame(hourly_flows, index=times)
+    
+
+
+######## collect the front into a table ########
+def summarise(results):
+    # go through each solution in pareto results
+    summary_rows = []
+    for i in results:
+        row = {}
+        row["cost"] = i["cost"]
+        row["emissions"] = i["emissions"]
+        sizing = get_sizing(i["vars"])
+        # add each pareto system size to the row
+        for i in sizing:
+            row[i] = sizing[i]
+        summary_rows.append(row)
+    return pd.DataFrame(summary_rows)
+
+
+######## F6 outputs ###############
+def plot_front(front, fname="pareto_front.png"):
+    sorted_front = front.sort_values("emissions") # from lowest to highest emissions
+    # create figure and plot
+    fig, ax = plt.subplots(figsize=(7, 5))
+    ax.plot(sorted_front["emissions"], sorted_front["cost"], "o-", color="tab:blue", zorder=2)
+    # labels
+    ax.set_xlabel("Emissions (kgCO$_2$e/day)")
+    ax.set_ylabel("Cost ($/day)")
+    ax.set_title("Pareto front: cost vs emissions")
+    ax.grid(alpha=0.3, zorder=0)
+    # label the two edge case points
+    ax.annotate("min emissions", (sorted_front["emissions"].iloc[0], sorted_front["cost"].iloc[0]),
+                textcoords="offset points", xytext=(8, 6))
+    ax.annotate("min cost", (sorted_front["emissions"].iloc[-1], sorted_front["cost"].iloc[-1]),
+                textcoords="offset points", xytext=(-8, 10), ha="right")
+    # save
+    fig.tight_layout()
+    fig.savefig(fname, dpi=150)
+    plt.show()
+
+###################################
+######## main #####################
+###################################
+
+def main():
+    results = pareto_front(pv_profile)
+    front = summarise(results)
+    print(front.round(1))
+
+    # flows
+    hourly_flows = get_dispatch(results[0]["vars"], times)
+    #print(hourly_flows[["x_G_to_SN", "x_PV_to_SN", "x_B_to_SN", "x_SN_to_B", "x_M_to_SN", "x_SN_to_G", "E_B"]].tail(3))
+
+    front.to_csv("pareto_front.csv", index=False)
+    plot_front(front)
+
+
+if __name__ == "__main__":
+    main()
+
+
+# generator as a decision variable
+# size of generator as an adjustable input

@@ -1,0 +1,13 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 220 44" width="220" height="44">
+  <!-- Mark: a livestock shed (blue body, barn-door cut-out) with its
+       pitched roof drawn as two solid gold solar-panel planes. The roof
+       is what the Optimise page fills with panels; the shed is the
+       sector's signature building. -->
+  <g transform="translate(0,3)">
+    <path d="M19 7 L4 20 L19 20 Z" fill="#a6790a"/>
+    <path d="M21 7 L36 20 L21 20 Z" fill="#a6790a"/>
+    <path d="M5 20 L35 20 L35 34 L5 34 Z M16 34 L16 27 A4.5 4.5 0 0 1 24 27 L24 34 Z"
+          fill="#0b5fff" fill-rule="evenodd"/>
+  </g>
+  <text x="48" y="29" font-family="Inter, 'Segoe UI', sans-serif" font-size="19" font-weight="800" fill="#211e17">Agri<tspan fill="#0b5fff">Power</tspan></text>
+</svg>
