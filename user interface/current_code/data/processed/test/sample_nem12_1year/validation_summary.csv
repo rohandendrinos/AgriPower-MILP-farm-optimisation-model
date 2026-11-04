@@ -1,2 +1,0 @@
-start,end,records,expected_interval_minutes,missing_timestamp_count,duplicate_timestamp_count,negative_demand_count,missing_value_count,zero_demand_count,zero_demand_pct,long_zero_min_duration_minutes,long_zero_period_count,longest_zero_duration_minutes,longest_zero_duration_hours,longest_zero_start,longest_zero_end_exclusive,total_energy_kWh,peak_interval_kWh,peak_demand_kW_est,selected_registers
-2022-05-18,2023-05-18 23:30:00,17568,30,0,0,0,0,3224,0.18351548269581056,60,527,810,13.5,2022-12-27 05:30:00,2022-12-27 19:00:00,6087.866,4.044,8.088,E1

@@ -1,2 +1,0 @@
-start,end,records,expected_interval_minutes,missing_timestamp_count,duplicate_timestamp_count,negative_demand_count,missing_value_count,zero_demand_count,zero_demand_pct,long_zero_min_duration_minutes,long_zero_period_count,longest_zero_duration_minutes,longest_zero_duration_hours,longest_zero_start,longest_zero_end_exclusive,total_energy_kWh,peak_interval_kWh,peak_demand_kW_est,selected_registers
-2024-05-04,2026-05-02 23:55:00,209952,5,0,0,0,0,446,0.0021242950769699742,60,8,380,6.333333333333333,2025-02-19 02:50:00,2025-02-19 09:10:00,980650.6100000001,11.21,134.52,E1
